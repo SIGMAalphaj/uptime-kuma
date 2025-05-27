@@ -5,84 +5,85 @@ const { DOWN, UP } = require("../../src/util");
 class Discord extends NotificationProvider {
     name = "discord";
 
-    /**
-     * @inheritdoc
-     */
-    async send(notification, msg, monitorJSON = null, heartbeatJSON = null) {
-        const okMsg = "Sent successfully.";
-        const discordDisplayName = notification.discordUsername || "Uptime Kuma";
+    async send(notification, message, monitorJSON = null, heartbeatJSON = null) {
+        const OK = "Sent Successfully.";
+        const displayName = notification.discordUsername || "Uptime Kuma";
 
         try {
-            // Prepare the webhook URL
             const webhookUrl = new URL(notification.discordWebhookUrl);
-            
-            // Handle thread if specified
             if (notification.discordChannelType === "postToThread") {
                 webhookUrl.searchParams.append("thread_id", notification.threadId);
             }
 
-            // Test notification (no heartbeat data)
-            if (heartbeatJSON == null) {
-                const testPayload = {
-                    username: discordDisplayName,
-                    content: msg
+            const createPayload = (title, color, fields) => ({
+                username: displayName,
+                content: notification.discordPrefixMessage || undefined,
+                embeds: [{
+                    title,
+                    color,
+                    timestamp: heartbeatJSON?.time || new Date().toISOString(),
+                    fields
+                }],
+                ...(notification.discordChannelType === "createNewForumPost" && {
+                    thread_name: notification.postName
+                })
+            });
+
+            if (!heartbeatJSON) {
+                const payload = {
+                    username: displayName,
+                    content: message,
+                    ...(notification.discordChannelType === "createNewForumPost" && {
+                        thread_name: notification.postName
+                    })
                 };
+                await axios.post(webhookUrl.toString(), payload);
+                return OK;
+            }
 
-                if (notification.discordChannelType === "createNewForumPost") {
-                    testPayload.thread_name = notification.postName;
+            const fields = [
+                { name: "Service Name", value: monitorJSON.name },
+                ...(notification.disableUrl ? [] : [{
+                    name: monitorJSON.type === "push" ? "Service Type" : "Service URL",
+                    value: this.extractAddress(monitorJSON)
+                }]),
+                {
+                    name: `Time (${heartbeatJSON.timezone})`,
+                    value: heartbeatJSON.localDateTime
                 }
+            ];
 
-                await axios.post(webhookUrl.toString(), testPayload);
-                return okMsg;
+            let payload;
+
+            if (heartbeatJSON.status === DOWN) {
+                fields.push({
+                    name: "Error",
+                    value: heartbeatJSON.msg ?? "N/A"
+                });
+
+                payload = createPayload(
+                    `❌ Your service ${monitorJSON.name} went down. ❌`,
+                    0xFF0000,
+                    fields
+                );
+
+            } else if (heartbeatJSON.status === UP) {
+                fields.push({
+                    name: "Ping",
+                    value: heartbeatJSON.ping == null ? "N/A" : `${heartbeatJSON.ping} ms`
+                });
+
+                payload = createPayload(
+                    `✅ Your service ${monitorJSON.name} is up! ✅`,
+                    0x00FF00,
+                    fields
+                );
             }
 
-            // Prepare base content with mentions
-            let content = "";
-            if (notification.discordPrefixMessage) {
-                content += notification.discordPrefixMessage + " ";
+            if (payload) {
+                await axios.post(webhookUrl.toString(), payload);
+                return OK;
             }
-            
-            // Add @everyone or @here if specified
-            if (notification.discordMentionEveryone) {
-                content += "@everyone ";
-            }
-            if (notification.discordMentionHere) {
-                content += "@here ";
-            }
-
-            // Prepare message body
-            let messageBody = `Hello! We have a new update..\n\n`;
-            
-            if (heartbeatJSON.status === UP) {
-                messageBody += `UP: ${monitorJSON.name}\n`;
-            } else if (heartbeatJSON.status === DOWN) {
-                messageBody += `DOWN: ${monitorJSON.name}\n`;
-            }
-            
-            messageBody += `Service Name\tService URL\n\n`;
-            messageBody += `${monitorJSON.name}\t${this.extractAddress(monitorJSON)}\n\n`;
-            messageBody += `Time\n${heartbeatJSON.localDateTime} (${heartbeatJSON.timezone})\n\n`;
-            
-            if (heartbeatJSON.ping) {
-                messageBody += `Ping\n${heartbeatJSON.ping} ms\n\n`;
-            }
-            
-            messageBody += `Uptime Kuma • Automated Monitoring • Today at ${new Date(heartbeatJSON.time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})`;
-
-            // Prepare final payload
-            const payload = {
-                username: discordDisplayName,
-                content: content + messageBody
-            };
-
-            // Handle forum post creation
-            if (notification.discordChannelType === "createNewForumPost") {
-                payload.thread_name = notification.postName;
-            }
-
-            await axios.post(webhookUrl.toString(), payload);
-            return okMsg;
-
         } catch (error) {
             this.throwGeneralAxiosError(error);
         }
