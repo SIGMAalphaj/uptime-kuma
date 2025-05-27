@@ -114,7 +114,6 @@ class Discord extends NotificationProvider {
             this.throwGeneralAxiosError(error);
         }
     }
-
 }
 
 module.exports = Discord;
