@@ -9,107 +9,99 @@ class Discord extends NotificationProvider {
      * @inheritdoc
      */
     async send(notification, msg, monitorJSON = null, heartbeatJSON = null) {
-        const okMsg = "Sent Successfully.";
+        const okMsg = "Sent successfully.";
+        const discordDisplayName = notification.discordUsername || "Uptime Kuma";
 
         try {
-            const discordDisplayName = notification.discordUsername || "Uptime Kuma";
+            // Prepare the webhook URL
             const webhookUrl = new URL(notification.discordWebhookUrl);
+            
+            // Handle thread if specified
             if (notification.discordChannelType === "postToThread") {
                 webhookUrl.searchParams.append("thread_id", notification.threadId);
             }
 
-            // If heartbeatJSON is null, assume we're testing.
+            // Test notification (no heartbeat data)
             if (heartbeatJSON == null) {
-                let discordtestdata = {
+                const testPayload = {
                     username: discordDisplayName,
-                    content: msg,
+                    content: msg
                 };
 
                 if (notification.discordChannelType === "createNewForumPost") {
-                    discordtestdata.thread_name = notification.postName;
+                    testPayload.thread_name = notification.postName;
                 }
 
-                await axios.post(webhookUrl.toString(), discordtestdata);
+                await axios.post(webhookUrl.toString(), testPayload);
                 return okMsg;
             }
 
-            // If heartbeatJSON is not null, we go into the normal alerting loop.
-            if (heartbeatJSON["status"] === DOWN) {
-                let discorddowndata = {
-                    username: discordDisplayName,
-                    embeds: [{
-                        title: "❌ Your service " + monitorJSON["name"] + " went down. ❌",
-                        color: 16711680,
-                        timestamp: heartbeatJSON["time"],
-                        fields: [
-                            {
-                                name: "Service Name",
-                                value: monitorJSON["name"],
-                            },
-                            ...(!notification.disableUrl ? [{
-                                name: monitorJSON["type"] === "push" ? "Service Type" : "Service URL",
-                                value: this.extractAddress(monitorJSON),
-                            }] : []),
-                            {
-                                name: `Time (${heartbeatJSON["timezone"]})`,
-                                value: heartbeatJSON["localDateTime"],
-                            },
-                            {
-                                name: "Error",
-                                value: heartbeatJSON["msg"] == null ? "N/A" : heartbeatJSON["msg"],
-                            },
-                        ],
-                    }],
-                };
-                if (notification.discordChannelType === "createNewForumPost") {
-                    discorddowndata.thread_name = notification.postName;
-                }
-                if (notification.discordPrefixMessage) {
-                    discorddowndata.content = notification.discordPrefixMessage;
-                }
+            // Prepare base payload
+            const payload = {
+                username: discordDisplayName,
+                embeds: [{
+                    timestamp: heartbeatJSON.time,
+                    fields: [
+                        {
+                            name: "Service Name",
+                            value: monitorJSON.name,
+                            inline: true
+                        },
+                        {
+                            name: `Time (${heartbeatJSON.timezone})`,
+                            value: heartbeatJSON.localDateTime,
+                            inline: true
+                        }
+                    ]
+                }]
+            };
 
-                await axios.post(webhookUrl.toString(), discorddowndata);
-                return okMsg;
-
-            } else if (heartbeatJSON["status"] === UP) {
-                let discordupdata = {
-                    username: discordDisplayName,
-                    embeds: [{
-                        title: "✅ Your service " + monitorJSON["name"] + " is up! ✅",
-                        color: 65280,
-                        timestamp: heartbeatJSON["time"],
-                        fields: [
-                            {
-                                name: "Service Name",
-                                value: monitorJSON["name"],
-                            },
-                            ...(!notification.disableUrl ? [{
-                                name: monitorJSON["type"] === "push" ? "Service Type" : "Service URL",
-                                value: this.extractAddress(monitorJSON),
-                            }] : []),
-                            {
-                                name: `Time (${heartbeatJSON["timezone"]})`,
-                                value: heartbeatJSON["localDateTime"],
-                            },
-                            {
-                                name: "Ping",
-                                value: heartbeatJSON["ping"] == null ? "N/A" : heartbeatJSON["ping"] + " ms",
-                            },
-                        ],
-                    }],
-                };
-
-                if (notification.discordChannelType === "createNewForumPost") {
-                    discordupdata.thread_name = notification.postName;
-                }
-
-                if (notification.discordPrefixMessage) {
-                    discordupdata.content = notification.discordPrefixMessage;
-                }
-
-                await axios.post(webhookUrl.toString(), discordupdata);
-                return okMsg;
+            // Add URL field if not disabled
+            if (!notification.disableUrl) {
+                payload.embeds[0].fields.push({
+                    name: monitorJSON.type === "push" ? "Service Type" : "Service URL",
+                    value: this.extractAddress(monitorJSON),
+                    inline: true
+                });
             }
+
+            // Handle DOWN status
+            if (heartbeatJSON.status === DOWN) {
+                payload.embeds[0].title = `🔴 ${monitorJSON.name} is DOWN`;
+                payload.embeds[0].color = 0xff3333; // Red
+                payload.embeds[0].fields.push({
+                    name: "Error",
+                    value: heartbeatJSON.msg || "No error message provided",
+                    inline: false
+                });
+            } 
+            // Handle UP status
+            else if (heartbeatJSON.status === UP) {
+                payload.embeds[0].title = `🟢 ${monitorJSON.name} is UP`;
+                payload.embeds[0].color = 0x33ff33; // Green
+                
+                if (heartbeatJSON.ping) {
+                    payload.embeds[0].fields.push({
+                        name: "Ping",
+                        value: `${heartbeatJSON.ping} ms`,
+                        inline: true
+                    });
+                }
+            }
+
+            // Add prefix message if specified
+            if (notification.discordPrefixMessage) {
+                payload.content = notification.discordPrefixMessage;
+            }
+
+            // Handle forum post creation
+            if (notification.discordChannelType === "createNewForumPost") {
+                payload.thread_name = notification.postName;
+            }
+
+            await axios.post(webhookUrl.toString(), payload);
+            return okMsg;
+
         } catch (error) {
             this.throwGeneralAxiosError(error);
         }
