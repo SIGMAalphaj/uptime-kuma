@@ -36,63 +36,44 @@ class Discord extends NotificationProvider {
                 return okMsg;
             }
 
-            // Prepare base payload
+            // Prepare base content with mentions
+            let content = "";
+            if (notification.discordPrefixMessage) {
+                content += notification.discordPrefixMessage + " ";
+            }
+            
+            // Add @everyone or @here if specified
+            if (notification.discordMentionEveryone) {
+                content += "@everyone ";
+            }
+            if (notification.discordMentionHere) {
+                content += "@here ";
+            }
+
+            // Prepare message body
+            let messageBody = `Hello! We have a new update..\n\n`;
+            
+            if (heartbeatJSON.status === UP) {
+                messageBody += `UP: ${monitorJSON.name}\n`;
+            } else if (heartbeatJSON.status === DOWN) {
+                messageBody += `DOWN: ${monitorJSON.name}\n`;
+            }
+            
+            messageBody += `Service Name\tService URL\n\n`;
+            messageBody += `${monitorJSON.name}\t${this.extractAddress(monitorJSON)}\n\n`;
+            messageBody += `Time\n${heartbeatJSON.localDateTime} (${heartbeatJSON.timezone})\n\n`;
+            
+            if (heartbeatJSON.ping) {
+                messageBody += `Ping\n${heartbeatJSON.ping} ms\n\n`;
+            }
+            
+            messageBody += `Uptime Kuma • Automated Monitoring • Today at ${new Date(heartbeatJSON.time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})`;
+
+            // Prepare final payload
             const payload = {
                 username: discordDisplayName,
-                embeds: [{
-                    timestamp: heartbeatJSON.time,
-                    fields: [
-                        {
-                            name: "Service Name",
-                            value: monitorJSON.name,
-                            inline: true
-                        },
-                        {
-                            name: `Time (${heartbeatJSON.timezone})`,
-                            value: heartbeatJSON.localDateTime,
-                            inline: true
-                        }
-                    ]
-                }]
+                content: content + messageBody
             };
-
-            // Add URL field if not disabled
-            if (!notification.disableUrl) {
-                payload.embeds[0].fields.push({
-                    name: monitorJSON.type === "push" ? "Service Type" : "Service URL",
-                    value: this.extractAddress(monitorJSON),
-                    inline: true
-                });
-            }
-
-            // Handle DOWN status
-            if (heartbeatJSON.status === DOWN) {
-                payload.embeds[0].title = `🔴 ${monitorJSON.name} is DOWN`;
-                payload.embeds[0].color = 0xff3333; // Red
-                payload.embeds[0].fields.push({
-                    name: "Error",
-                    value: heartbeatJSON.msg || "No error message provided",
-                    inline: false
-                });
-            } 
-            // Handle UP status
-            else if (heartbeatJSON.status === UP) {
-                payload.embeds[0].title = `🟢 ${monitorJSON.name} is UP`;
-                payload.embeds[0].color = 0x33ff33; // Green
-                
-                if (heartbeatJSON.ping) {
-                    payload.embeds[0].fields.push({
-                        name: "Ping",
-                        value: `${heartbeatJSON.ping} ms`,
-                        inline: true
-                    });
-                }
-            }
-
-            // Add prefix message if specified
-            if (notification.discordPrefixMessage) {
-                payload.content = notification.discordPrefixMessage;
-            }
 
             // Handle forum post creation
             if (notification.discordChannelType === "createNewForumPost") {
